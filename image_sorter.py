@@ -88,6 +88,7 @@ class ImageSorter:
         self.processing_lock = False  # Блокировка обработки
         self.animation_frames = []  # Кадры анимации
         self.animation_timer = None  # Таймер для анимации
+        self.move_history = []  # История перемещений для функции Undo
         
         # Получаем путь к папке, в которой находится скрипт
         if getattr(sys, 'frozen', False):
@@ -161,6 +162,18 @@ class ImageSorter:
         # Кнопка "Пропустить"
         skip_frame = ttk.Frame(sidebar)
         skip_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Кнопка "Отменить" (Undo)
+        undo_btn = ttk.Button(
+            skip_frame,
+            text="Undo",
+            command=self.undo_last_action
+        )
+        undo_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        
+        # Метка с хоткеем для отмены
+        undo_hotkey = ttk.Label(skip_frame, text="[Ctrl+Z]", padding=(5, 0))
+        undo_hotkey.pack(side=tk.LEFT)
         
         skip_btn = ttk.Button(
             skip_frame,
@@ -344,12 +357,16 @@ class ImageSorter:
                 # Сначала пробуем просто переместить
                 shutil.move(src, dst)
                 success = True
+                # Сохраняем информацию о перемещении для функции Undo
+                self.move_history.append((src, dst))
             except:
                 try:
                     # Если не получилось, пробуем копировать и удалить
                     shutil.copy2(src, dst)
                     os.remove(src)
                     success = True
+                    # Сохраняем информацию о перемещении для функции Undo
+                    self.move_history.append((src, dst))
                 except:
                     pass
             
@@ -512,6 +529,10 @@ class ImageSorter:
         self.root.bind("<Right>", lambda event: self.show_next_image())
         self.root.bind("<Left>", lambda event: self.show_prev_image())
         self.root.bind("<space>", lambda event: self.show_next_image())  # Пропуск изображения
+        self.root.bind("<Control-z>", lambda event: self.undo_last_action())  # Отмена последнего действия
+        
+        # Добавляем обработчик всех клавиш для работы независимо от раскладки
+        self.root.bind("<KeyPress>", self.handle_keypress)
         
         # Горячие клавиши для папок
         # Сначала удаляем все старые привязки цифр
@@ -527,6 +548,58 @@ class ImageSorter:
         # Привязываем горячие клавиши
         for hotkey, idx in hotkey_to_index.items():
             self.root.bind(hotkey, lambda e, idx=idx: self.move_to_folder(idx))
+    
+    def handle_keypress(self, event):
+        """Обрабатывает нажатия клавиш независимо от раскладки"""
+        # Получаем код клавиши
+        key_code = event.keycode
+        
+        # Обработка цифровых клавиш (0-9) по их коду
+        # Коды клавиш 0-9 обычно 48-57 (верхний ряд) или 96-105 (цифровая клавиатура)
+        digit_keys = {
+            # Верхний ряд цифр
+            48: '0', 49: '1', 50: '2', 51: '3', 52: '4',
+            53: '5', 54: '6', 55: '7', 56: '8', 57: '9',
+            # Цифровая клавиатура
+            96: '0', 97: '1', 98: '2', 99: '3', 100: '4',
+            101: '5', 102: '6', 103: '7', 104: '8', 105: '9'
+        }
+        
+        # Обработка Ctrl+Z (отмена) по коду
+        # Z обычно имеет код 90
+        if key_code == 90 and event.state & 0x4:  # 0x4 - это Ctrl
+            self.undo_last_action()
+            return
+        
+        # Обработка пробела (пропуск) по коду
+        # Пробел обычно имеет код 32
+        if key_code == 32:
+            self.show_next_image()
+            return
+        
+        # Обработка стрелок по коду
+        # Стрелка влево обычно имеет код 37, вправо - 39
+        if key_code == 37:  # Стрелка влево
+            self.show_prev_image()
+            return
+        elif key_code == 39:  # Стрелка вправо
+            self.show_next_image()
+            return
+        
+        # Обработка цифровых клавиш для перемещения в папки
+        if key_code in digit_keys:
+            digit = digit_keys[key_code]
+            
+            # Ищем папку с такой горячей клавишей
+            for i, folder in enumerate(self.folders):
+                if self.folder_hotkeys.get(folder) == digit:
+                    self.move_to_folder(i)
+                    return
+            
+            # Если нет папки с такой горячей клавишей, используем индекс
+            digit_index = int(digit)
+            if digit_index < len(self.folders):
+                self.move_to_folder(digit_index)
     
     def load_images(self):
         """Загружает список изображений из текущей директории"""
@@ -777,6 +850,9 @@ class ImageSorter:
             # Перемещаем файл
             shutil.move(src, dst)
             
+            # Сохраняем информацию о перемещении для функции Undo
+            self.move_history.append((src, dst))
+            
             # Обновляем статус с информацией о последнем действии
             self.status_var.set(f"Moved to: {folder_name}")
             
@@ -833,6 +909,48 @@ class ImageSorter:
         self.root.attributes('-fullscreen', self.is_fullscreen)
         # Используем after, чтобы дать окну время обновить свои размеры
         self.root.after(100, self.update_image_size)
+    
+    def undo_last_action(self):
+        """Отменяет последнее действие"""
+        if not self.move_history:
+            return
+        
+        # Восстанавливаем последнее действие
+        last_action = self.move_history.pop()
+        src, dst = last_action
+        
+        # Проверяем, существует ли файл в текущем местоположении
+        if not os.path.exists(dst):
+            messagebox.showerror("Error", "File not found in destination")
+            return
+        
+        # Проверяем, существует ли исходная папка
+        src_dir = os.path.dirname(src)
+        if not os.path.exists(src_dir):
+            os.makedirs(src_dir)
+        
+        # Перемещаем файл обратно
+        try:
+            shutil.move(dst, src)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to undo action: {str(e)}")
+            return
+        
+        # Обновляем статус
+        self.status_var.set("Action undone")
+        
+        # Обновляем счетчик
+        self.processed_images -= 1
+        self.update_counter()
+        
+        # Добавляем файл обратно в список изображений
+        self.image_files.append(src)
+        # Сортируем список файлов, чтобы сохранить порядок
+        self.image_files.sort()
+        
+        # Показываем возвращенное изображение
+        new_index = self.image_files.index(src)
+        self.show_image(new_index)
 
 if __name__ == "__main__":
     root = tk.Tk()
