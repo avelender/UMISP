@@ -9,6 +9,98 @@ import threading
 import time
 import subprocess  # Добавляем импорт для запуска проводника
 
+class HotkeyDialog(tk.Toplevel):
+    def __init__(self, parent, folder_name, current_hotkey=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.folder_name = folder_name
+        self.result = None
+        self.current_key = current_hotkey
+        
+        # Настройка окна
+        self.title("Select Hotkey")
+        self.geometry("300x150")
+        self.resizable(False, False)
+        self.transient(parent)  # Делаем окно модальным
+        self.grab_set()  # Захватываем фокус
+        
+        # Центрируем окно
+        self.update_idletasks()
+        width = self.winfo_width()
+        height = self.winfo_height()
+        x = (self.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.winfo_screenheight() // 2) - (height // 2)
+        self.geometry('{}x{}+{}+{}'.format(width, height, x, y))
+        
+        # Гарантируем, что окно получит фокус
+        self.focus_force()
+        self.lift()
+        self.attributes('-topmost', True)
+        self.after(10, lambda: self.attributes('-topmost', False))
+        
+        # Создаем виджеты
+        ttk.Label(self, text=f"Press any key for folder '{folder_name}'").pack(pady=10)
+        
+        # Поле для отображения текущей клавиши
+        self.key_var = tk.StringVar(value="Press a key..." if not current_hotkey else current_hotkey)
+        self.key_label = ttk.Label(self, textvariable=self.key_var, font=("Arial", 12, "bold"))
+        self.key_label.pack(pady=10)
+        
+        # Кнопка отмены
+        button_frame = ttk.Frame(self)
+        button_frame.pack(pady=10, fill=tk.X)
+        
+        ttk.Button(button_frame, text="Cancel", command=self.cancel).pack(side=tk.BOTTOM, padx=10, expand=True)
+        
+        # Привязываем обработчик нажатий клавиш
+        self.bind("<KeyPress>", self.on_key_press)
+        
+        # Ждем закрытия окна
+        self.wait_window()
+    
+    def on_key_press(self, event):
+        """Обрабатывает нажатие клавиши"""
+        # Получаем имя клавиши
+        key_name = self.get_key_name(event)
+        
+        # Обновляем отображение и сразу сохраняем
+        if key_name:
+            self.key_var.set(key_name)
+            self.current_key = key_name
+            # Сразу сохраняем и закрываем окно
+            self.after(200, self.save)  # Небольшая задержка, чтобы пользователь увидел клавишу
+    
+    def get_key_name(self, event):
+        """Получает имя клавиши из события"""
+        # Игнорируем служебные клавиши
+        if event.keysym in ('Shift_L', 'Shift_R', 'Control_L', 'Control_R', 
+                           'Alt_L', 'Alt_R', 'Caps_Lock', 'Tab'):
+            return None
+        
+        # Для специальных клавиш используем их имена
+        if event.keysym in ('space', 'Return', 'BackSpace', 'Delete', 'Escape',
+                          'Up', 'Down', 'Left', 'Right', 'Home', 'End', 'Page_Up', 'Page_Down',
+                          'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'):
+            return event.keysym
+        
+        # Для обычных клавиш используем символ
+        if len(event.char) > 0:
+            return event.char
+        
+        # Если не удалось определить, используем keysym
+        return event.keysym
+    
+    def save(self):
+        """Сохраняет выбранную клавишу и закрывает окно"""
+        if self.current_key:
+            self.result = self.current_key
+            self.destroy()
+    
+    def cancel(self):
+        """Отменяет выбор и закрывает окно"""
+        self.result = None
+        self.destroy()
+
 class ToolTip(object):
     def __init__(self, widget, text):
         self.widget = widget
@@ -89,6 +181,7 @@ class ImageSorter:
         self.animation_frames = []  # Кадры анимации
         self.animation_timer = None  # Таймер для анимации
         self.move_history = []  # История перемещений для функции Undo
+        self.hotkey_to_index = {}  # Словарь для быстрого поиска индекса папки по горячей клавише
         
         # Получаем путь к папке, в которой находится скрипт
         if getattr(sys, 'frozen', False):
@@ -264,10 +357,24 @@ class ImageSorter:
             # Кнопка выбора горячей клавиши
             if folder in self.folder_hotkeys:
                 hotkey = self.folder_hotkeys[folder]
+                hotkey_text = hotkey
+                # Для специальных клавиш делаем более понятные надписи
+                special_keys = {
+                    'space': 'Space',
+                    'Return': 'Enter',
+                    'BackSpace': 'Back',
+                    'Delete': 'Del',
+                    'Escape': 'Esc',
+                    'Page_Up': 'PgUp',
+                    'Page_Down': 'PgDn'
+                }
+                if hotkey in special_keys:
+                    hotkey_text = special_keys[hotkey]
+                
                 hotkey_btn = ttk.Button(
                     frame,
-                    text=f"[{hotkey}]",
-                    width=4,
+                    text=f"[{hotkey_text}]",
+                    width=6,
                     command=lambda f=folder: self.show_hotkey_menu(f)
                 )
             else:
@@ -275,11 +382,11 @@ class ImageSorter:
                 hotkey_btn = ttk.Button(
                     frame,
                     text="[ ]",
-                    width=4,
+                    width=6,
                     command=lambda f=folder: self.show_hotkey_menu(f)
                 )
             hotkey_btn.pack(side=tk.LEFT, padx=2)
-            createToolTip(hotkey_btn, "Hotkeys")
+            createToolTip(hotkey_btn, "Click to set hotkey")
             
             # Кнопка редактирования
             edit_btn = ttk.Button(
@@ -400,38 +507,35 @@ class ImageSorter:
                 btn.configure(state='normal')
     
     def show_hotkey_menu(self, folder):
-        """Показывает меню выбора горячей клавиши"""
-        menu = tk.Menu(self.root, tearoff=0)
+        """Открывает диалог выбора горячей клавиши"""
+        current_hotkey = self.folder_hotkeys.get(folder)
+        dialog = HotkeyDialog(self.root, folder, current_hotkey)
         
-        # Добавляем пункты меню для каждой цифры (0-9)
-        for i in range(10):  # Изменено с range(1, 10) на range(10), чтобы включить 0
-            digit = str(i)
-            
-            # Проверяем, не занята ли эта горячая клавиша другой папкой
+        # Если пользователь выбрал клавишу
+        if dialog.result:
+            # Проверяем, не занята ли эта клавиша другой папкой
             used_by = None
             for f, h in self.folder_hotkeys.items():
-                if h == digit and f != folder:
+                if h == dialog.result and f != folder:
                     used_by = f
                     break
             
             if used_by:
-                # Если клавиша занята, позволяем её "отобрать"
-                menu.add_command(
-                    label=f"{digit} ({used_by})",
-                    command=lambda num=digit, old_folder=used_by: self.reassign_hotkey(folder, num, old_folder)
-                )
+                # Если клавиша занята, спрашиваем подтверждение
+                if messagebox.askyesno("Confirmation", 
+                                      f"Key '{dialog.result}' is already assigned to folder '{used_by}'.\n\n" +
+                                      "Reassign it to the current folder?"):
+                    # Удаляем старую привязку
+                    del self.folder_hotkeys[used_by]
+                    # Устанавливаем новую
+                    self.folder_hotkeys[folder] = dialog.result
+                    self.create_folder_buttons()
+                    self.bind_keys()
             else:
-                # Если клавиша свободна, позволяем её выбрать
-                menu.add_command(
-                    label=digit,
-                    command=lambda num=digit: self.set_folder_hotkey(folder, num)
-                )
-        
-        # Показываем меню под кнопкой
-        menu.post(
-            self.root.winfo_pointerx(),
-            self.root.winfo_pointery()
-        )
+                # Если клавиша свободна, просто назначаем её
+                self.folder_hotkeys[folder] = dialog.result
+                self.create_folder_buttons()
+                self.bind_keys()
     
     def reassign_hotkey(self, new_folder, hotkey, old_folder):
         """Переназначает горячую клавишу с одной папки на другую"""
@@ -534,36 +638,17 @@ class ImageSorter:
         # Добавляем обработчик всех клавиш для работы независимо от раскладки
         self.root.bind("<KeyPress>", self.handle_keypress)
         
-        # Горячие клавиши для папок
-        # Сначала удаляем все старые привязки цифр
-        for i in range(10):
-            self.root.unbind(str(i))
-        
         # Создаем словарь для быстрого поиска индекса папки по горячей клавише
-        hotkey_to_index = {}
+        self.hotkey_to_index = {}
         for i, folder in enumerate(self.folders):
-            hotkey = self.folder_hotkeys.get(folder, str(i))
-            hotkey_to_index[hotkey] = i
-        
-        # Привязываем горячие клавиши
-        for hotkey, idx in hotkey_to_index.items():
-            self.root.bind(hotkey, lambda e, idx=idx: self.move_to_folder(idx))
+            if folder in self.folder_hotkeys:
+                hotkey = self.folder_hotkeys[folder]
+                self.hotkey_to_index[hotkey] = i
     
     def handle_keypress(self, event):
         """Обрабатывает нажатия клавиш независимо от раскладки"""
         # Получаем код клавиши
         key_code = event.keycode
-        
-        # Обработка цифровых клавиш (0-9) по их коду
-        # Коды клавиш 0-9 обычно 48-57 (верхний ряд) или 96-105 (цифровая клавиатура)
-        digit_keys = {
-            # Верхний ряд цифр
-            48: '0', 49: '1', 50: '2', 51: '3', 52: '4',
-            53: '5', 54: '6', 55: '7', 56: '8', 57: '9',
-            # Цифровая клавиатура
-            96: '0', 97: '1', 98: '2', 99: '3', 100: '4',
-            101: '5', 102: '6', 103: '7', 104: '8', 105: '9'
-        }
         
         # Обработка Ctrl+Z (отмена) по коду
         # Z обычно имеет код 90
@@ -586,15 +671,41 @@ class ImageSorter:
             self.show_next_image()
             return
         
-        # Обработка цифровых клавиш для перемещения в папки
+        # Получаем имя клавиши
+        key_name = None
+        
+        # Для специальных клавиш используем их имена
+        if event.keysym in ('space', 'Return', 'BackSpace', 'Delete', 'Escape',
+                          'Up', 'Down', 'Left', 'Right', 'Home', 'End', 'Page_Up', 'Page_Down',
+                          'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'):
+            key_name = event.keysym
+        # Для обычных клавиш используем символ
+        elif len(event.char) > 0:
+            key_name = event.char
+        # Если не удалось определить, используем keysym
+        else:
+            key_name = event.keysym
+        
+        # Проверяем, есть ли такая горячая клавиша
+        if key_name in self.hotkey_to_index:
+            folder_index = self.hotkey_to_index[key_name]
+            self.move_to_folder(folder_index)
+            return
+        
+        # Обработка цифровых клавиш (0-9) по их коду
+        # Коды клавиш 0-9 обычно 48-57 (верхний ряд) или 96-105 (цифровая клавиатура)
+        digit_keys = {
+            # Верхний ряд цифр
+            48: '0', 49: '1', 50: '2', 51: '3', 52: '4',
+            53: '5', 54: '6', 55: '7', 56: '8', 57: '9',
+            # Цифровая клавиатура
+            96: '0', 97: '1', 98: '2', 99: '3', 100: '4',
+            101: '5', 102: '6', 103: '7', 104: '8', 105: '9'
+        }
+        
+        # Поддержка старого поведения с цифрами
         if key_code in digit_keys:
             digit = digit_keys[key_code]
-            
-            # Ищем папку с такой горячей клавишей
-            for i, folder in enumerate(self.folders):
-                if self.folder_hotkeys.get(folder) == digit:
-                    self.move_to_folder(i)
-                    return
             
             # Если нет папки с такой горячей клавишей, используем индекс
             digit_index = int(digit)
