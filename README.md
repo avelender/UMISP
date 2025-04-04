@@ -3,7 +3,7 @@ Ultimate Manual Image Sorter Plus
 
 A program for fast and convenient image sorting into folders using hotkeys.
 
-![Program Screenshot](6546.png)
+![Program Screenshot](sc.png)
 
 ## Features
 
