@@ -182,6 +182,7 @@ class ImageSorter:
         self.animation_timer = None  # Таймер для анимации
         self.move_history = []  # История перемещений для функции Undo
         self.hotkey_to_index = {}  # Словарь для быстрого поиска индекса папки по горячей клавише
+        self.settings_file = "image_sorter_settings.json"  # Имя файла настроек
         
         # Получаем путь к папке, в которой находится скрипт
         if getattr(sys, 'frozen', False):
@@ -201,8 +202,51 @@ class ImageSorter:
         # Запускаем загрузку в фоне после создания интерфейса
         self.root.after(100, self.initialize_app)
     
+    def save_settings(self):
+        """Сохраняет настройки в JSON-файл"""
+        try:
+            # Создаем словарь с настройками
+            settings = {
+                "folder_hotkeys": self.folder_hotkeys
+            }
+            
+            # Полный путь к файлу настроек
+            settings_path = os.path.join(self.app_path, self.settings_file)
+            
+            # Сохраняем в JSON
+            with open(settings_path, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=4)
+                
+            self.status_var.set("Settings saved")
+        except Exception as e:
+            self.status_var.set(f"Error saving settings: {str(e)}")
+    
+    def load_settings(self):
+        """Загружает настройки из JSON-файла"""
+        try:
+            # Полный путь к файлу настроек
+            settings_path = os.path.join(self.app_path, self.settings_file)
+            
+            # Проверяем, существует ли файл
+            if os.path.exists(settings_path):
+                # Загружаем из JSON
+                with open(settings_path, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+                
+                # Загружаем хоткеи
+                if "folder_hotkeys" in settings:
+                    self.folder_hotkeys = settings["folder_hotkeys"]
+                    self.status_var.set("Settings loaded")
+        except Exception as e:
+            self.status_var.set(f"Error loading settings: {str(e)}")
+            # Если произошла ошибка, используем пустые настройки
+            self.folder_hotkeys = {}
+    
     def initialize_app(self):
         """Инициализация приложения после создания интерфейса"""
+        # Загружаем настройки
+        self.load_settings()
+        
         # Загружаем список папок
         self.folders = self.get_existing_folders()
         self.create_folder_buttons()
@@ -223,6 +267,9 @@ class ImageSorter:
     
     def on_closing(self):
         """Обработчик закрытия окна"""
+        # Сохраняем настройки перед закрытием
+        self.save_settings()
+        
         # Очищаем ссылки на изображения
         self.current_image = None
         self.current_photo = None
@@ -531,11 +578,15 @@ class ImageSorter:
                     self.folder_hotkeys[folder] = dialog.result
                     self.create_folder_buttons()
                     self.bind_keys()
+                    # Сохраняем настройки
+                    self.save_settings()
             else:
                 # Если клавиша свободна, просто назначаем её
                 self.folder_hotkeys[folder] = dialog.result
                 self.create_folder_buttons()
                 self.bind_keys()
+                # Сохраняем настройки
+                self.save_settings()
     
     def reassign_hotkey(self, new_folder, hotkey, old_folder):
         """Переназначает горячую клавишу с одной папки на другую"""

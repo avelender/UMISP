@@ -10,7 +10,8 @@ A program for fast and convenient image sorting into folders using hotkeys.
 - View images from the current directory (supports JPG, JPEG, PNG, GIF, BMP, WEBP)
 - Quickly move images to folders using hotkeys
 - Create, rename, and delete folders directly from the interface
-- Customize hotkeys for each folder
+- Customize hotkeys for each folder (any key can be assigned)
+- Hotkey settings are saved between sessions
 - Support for animated GIFs
 - Fullscreen mode (F11)
 - Display information about the current file (name, size)
@@ -43,6 +44,8 @@ A program for fast and convenient image sorting into folders using hotkeys.
 4. Now you can use this key to quickly move images into that folder  
 
 You can use any keys: letters, numbers, function keys (F1–F12), arrow keys, and others.
+
+**Note:** Your hotkey settings are automatically saved and will be remembered the next time you run the program, even if you move the executable to a different folder.
 
 ## System Requirements
 
